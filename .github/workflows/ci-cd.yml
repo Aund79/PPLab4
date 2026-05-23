@@ -8,6 +8,11 @@ on:
     branches: [ main ]
 
   workflow_dispatch:
+  inputs:
+    version:
+      description: 'Версия образа для production (тег)'
+      required: false
+      default: 'latest'
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -131,3 +136,70 @@ jobs:
         with:
           name: staging-metrics
           path: staging_metrics.txt
+  deploy-production:
+    if: github.event_name == 'workflow_dispatch'
+
+    runs-on: ubuntu-latest
+
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Convert repository name to lowercase
+        run: |
+          echo "REPO_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: Blue-green deploy to production
+        run: |
+          VERSION=${{ github.event.inputs.version }}
+
+          if [ -z "$VERSION" ]; then
+            VERSION="latest"
+          fi
+
+          IMAGE=ghcr.io/${{ env.REPO_LOWER }}:$VERSION
+
+          # Запускаем новую версию (green) на порту 8081
+          docker run -d --name app-green -p 8081:8080 $IMAGE
+
+          sleep 5
+
+          curl --retry 5 --retry-delay 2 --fail http://localhost:8081/health || exit 1
+
+          # Переключаем трафик: останавливаем старый blue (если есть)
+          docker stop app-blue 2>/dev/null || true
+
+          # Запускаем новую версию на основном порту 8080
+          docker run -d --name app-blue -p 8080:8080 $IMAGE
+
+          sleep 3
+
+          curl --fail http://localhost:8080/health || exit 1
+
+          # Удаляем green (вспомогательный)
+          docker stop app-green
+          docker rm app-green
+
+          # Сохраняем текущую версию
+          echo $VERSION > current_version.txt
+
+      - name: Save production logs
+        if: always()
+        run: docker logs app-blue > production_logs.txt
+
+      - name: Upload production logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-logs
+          path: production_logs.txt
+
+      - name: Save production metrics
+        run: |
+          curl -s http://localhost:8080/metrics > production_metrics.txt
+
+      - name: Upload production metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-metrics
+          path: production_metrics.txt

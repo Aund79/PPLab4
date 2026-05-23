@@ -62,4 +62,31 @@ jobs:
 
       - name: Static analysis (clang-tidy)
         run: |
-          clang-tidy src/main.cpp -- -I.  
+          clang-tidy src/main.cpp -- -I. 
+  docker-build-push:
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Convert repository name to lowercase
+        run: |
+          echo "REPO_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: Build and push image
+        run: |
+          IMAGE_TAG=ghcr.io/${{ env.REPO_LOWER }}:latest
+
+          docker build -t $IMAGE_TAG .
+
+          docker push $IMAGE_TAG

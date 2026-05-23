@@ -203,3 +203,31 @@ jobs:
         with:
           name: production-metrics
           path: production_metrics.txt
+  notification:
+    if: always()
+
+    needs:
+      - build-and-test
+      - docker-build-push
+      - deploy-staging
+      - deploy-production
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate notification report
+        run: |
+          echo "=== CI/CD Pipeline Notification ===" > report.txt
+          echo "Repository: ${{ github.repository }}" >> report.txt
+          echo "Run number: ${{ github.run_number }}" >> report.txt
+          echo "Triggered by: ${{ github.actor }}" >> report.txt
+          echo "Event: ${{ github.event_name }}" >> report.txt
+          echo "Status: ${{ job.status }}" >> report.txt
+          echo "Date: $(date)" >> report.txt
+          echo "===================================" >> report.txt
+
+      - name: Upload notification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: notification-report-${{ github.run_id }}
+          path: report.txt
